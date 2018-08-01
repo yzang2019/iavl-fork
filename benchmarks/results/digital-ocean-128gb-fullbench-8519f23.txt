@@ -1,0 +1,149 @@
+cd benchmarks && \
+	go test -bench=RandomBytes . && \
+	go test -bench=Small . && \
+	go test -bench=Medium . && \
+	go test -timeout=30m -bench=Large . && \
+	go test -bench=Mem . && \
+	go test -timeout=60m -bench=LevelDB .
+goos: linux
+goarch: amd64
+pkg: github.com/tendermint/iavl/benchmarks
+BenchmarkRandomBytes/random-4-24         	20000000	        87.5 ns/op
+BenchmarkRandomBytes/random-16-24        	10000000	       154 ns/op
+BenchmarkRandomBytes/random-32-24        	10000000	       223 ns/op
+BenchmarkRandomBytes/random-100-24       	 3000000	       514 ns/op
+BenchmarkRandomBytes/random-1000-24      	  500000	      4003 ns/op
+PASS
+ok  	github.com/tendermint/iavl/benchmarks	10.069s
+Init Tree took 0.91 MB
+goos: linux
+goarch: amd64
+pkg: github.com/tendermint/iavl/benchmarks
+BenchmarkSmall/memdb-1000-100-4-10/query-miss-24         	  300000	      5750 ns/op
+BenchmarkSmall/memdb-1000-100-4-10/query-hits-24         	  200000	      7024 ns/op
+BenchmarkSmall/memdb-1000-100-4-10/update-24             	   10000	    180750 ns/op
+BenchmarkSmall/memdb-1000-100-4-10/block-24              	     100	  31067470 ns/op
+Init Tree took 0.48 MB
+BenchmarkSmall/goleveldb-1000-100-4-10/query-miss-24     	  200000	      7588 ns/op
+BenchmarkSmall/goleveldb-1000-100-4-10/query-hits-24     	  200000	     10663 ns/op
+BenchmarkSmall/goleveldb-1000-100-4-10/update-24         	   10000	    133156 ns/op
+BenchmarkSmall/goleveldb-1000-100-4-10/block-24          	     100	  21069609 ns/op
+Init Tree took 0.48 MB
+BenchmarkSmall/leveldb-1000-100-4-10/query-miss-24       	  200000	      6736 ns/op
+BenchmarkSmall/leveldb-1000-100-4-10/query-hits-24       	  200000	      9139 ns/op
+BenchmarkSmall/leveldb-1000-100-4-10/update-24           	   10000	    129181 ns/op
+BenchmarkSmall/leveldb-1000-100-4-10/block-24            	     100	  19620992 ns/op
+PASS
+ok  	github.com/tendermint/iavl/benchmarks	22.323s
+Init Tree took 85.08 MB
+goos: linux
+goarch: amd64
+pkg: github.com/tendermint/iavl/benchmarks
+BenchmarkMedium/memdb-100000-100-16-40/query-miss-24         	  200000	      7504 ns/op
+BenchmarkMedium/memdb-100000-100-16-40/query-hits-24         	  200000	      9314 ns/op
+BenchmarkMedium/memdb-100000-100-16-40/update-24             	    3000	    971439 ns/op
+BenchmarkMedium/memdb-100000-100-16-40/block-24              	      10	 157465428 ns/op
+Init Tree took 47.59 MB
+BenchmarkMedium/goleveldb-100000-100-16-40/query-miss-24     	   50000	     20144 ns/op
+BenchmarkMedium/goleveldb-100000-100-16-40/query-hits-24     	   50000	     24144 ns/op
+BenchmarkMedium/goleveldb-100000-100-16-40/update-24         	   10000	    286280 ns/op
+BenchmarkMedium/goleveldb-100000-100-16-40/block-24          	      30	  36161687 ns/op
+Init Tree took 38.96 MB
+BenchmarkMedium/leveldb-100000-100-16-40/query-miss-24       	  100000	     18953 ns/op
+BenchmarkMedium/leveldb-100000-100-16-40/query-hits-24       	   50000	     24244 ns/op
+BenchmarkMedium/leveldb-100000-100-16-40/update-24           	   10000	    281156 ns/op
+BenchmarkMedium/leveldb-100000-100-16-40/block-24            	      30	  36910614 ns/op
+PASS
+ok  	github.com/tendermint/iavl/benchmarks	37.006s
+Init Tree took 917.90 MB
+goos: linux
+goarch: amd64
+pkg: github.com/tendermint/iavl/benchmarks
+BenchmarkLarge/memdb-1000000-100-16-40/query-miss-24         	  100000	     13593 ns/op
+BenchmarkLarge/memdb-1000000-100-16-40/query-hits-24         	  100000	     12952 ns/op
+BenchmarkLarge/memdb-1000000-100-16-40/update-24             	     300	   4657798 ns/op
+BenchmarkLarge/memdb-1000000-100-16-40/block-24              	       3	 468709273 ns/op
+Init Tree took 416.94 MB
+BenchmarkLarge/goleveldb-1000000-100-16-40/query-miss-24     	   20000	     51602 ns/op
+BenchmarkLarge/goleveldb-1000000-100-16-40/query-hits-24     	   30000	     41950 ns/op
+BenchmarkLarge/goleveldb-1000000-100-16-40/update-24         	    5000	    338428 ns/op
+BenchmarkLarge/goleveldb-1000000-100-16-40/block-24          	      30	  47318815 ns/op
+Init Tree took 404.39 MB
+BenchmarkLarge/leveldb-1000000-100-16-40/query-miss-24       	   20000	     50732 ns/op
+BenchmarkLarge/leveldb-1000000-100-16-40/query-hits-24       	   30000	     41635 ns/op
+BenchmarkLarge/leveldb-1000000-100-16-40/update-24           	   10000	    415398 ns/op
+BenchmarkLarge/leveldb-1000000-100-16-40/block-24            	      30	  54986411 ns/op
+Init Tree took 25.59 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/query-miss-24         	  100000	     17832 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/query-hits-24         	  100000	     23022 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/update-24             	   10000	    282268 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/block-24              	      30	  33720348 ns/op
+Init Tree took 42.66 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/query-miss-24        	   50000	     21101 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/query-hits-24        	   50000	     25935 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/update-24            	   10000	    317867 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/block-24             	      30	  51986543 ns/op
+Init Tree took 264.15 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/query-miss-24       	   50000	     29083 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/query-hits-24       	   50000	     41539 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/update-24           	    5000	    561975 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/block-24            	      20	  81865344 ns/op
+Init Tree took 2675.72 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/query-miss-24      	   10000	    161842 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/query-hits-24      	   10000	    157954 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/update-24          	    1000	   4168666 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/block-24           	       5	 561467526 ns/op
+PASS
+ok  	github.com/tendermint/iavl/benchmarks	418.571s
+PASS
+ok  	github.com/tendermint/iavl/benchmarks	0.008s
+Init Tree took 46.79 MB
+goos: linux
+goarch: amd64
+pkg: github.com/tendermint/iavl/benchmarks
+BenchmarkLevelDBBatchSizes/goleveldb-100000-5-16-40/query-miss-24         	  100000	     19362 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-5-16-40/query-hits-24         	   50000	     23809 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-5-16-40/update-24             	    5000	    504185 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-5-16-40/block-24              	    1000	   2772026 ns/op
+Init Tree took 47.93 MB
+BenchmarkLevelDBBatchSizes/goleveldb-100000-25-16-40/query-miss-24        	  100000	     18753 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-25-16-40/query-hits-24        	   50000	     24409 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-25-16-40/update-24            	    5000	    342895 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-25-16-40/block-24             	     200	   9121821 ns/op
+Init Tree took 30.20 MB
+BenchmarkLevelDBBatchSizes/goleveldb-100000-100-16-40/query-miss-24       	   50000	     20665 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-100-16-40/query-hits-24       	   50000	     24959 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-100-16-40/update-24           	   10000	    279390 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-100-16-40/block-24            	      30	  36511078 ns/op
+Init Tree took 38.23 MB
+BenchmarkLevelDBBatchSizes/goleveldb-100000-400-16-40/query-miss-24       	  100000	     18706 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-400-16-40/query-hits-24       	  100000	     24203 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-400-16-40/update-24           	   10000	    204644 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-400-16-40/block-24            	      10	 145604722 ns/op
+Init Tree took 37.46 MB
+BenchmarkLevelDBBatchSizes/goleveldb-100000-2000-16-40/query-miss-24      	  100000	     18696 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-2000-16-40/query-hits-24      	   50000	     24866 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-2000-16-40/update-24          	   10000	    136987 ns/op
+BenchmarkLevelDBBatchSizes/goleveldb-100000-2000-16-40/block-24           	       3	 403801451 ns/op
+Init Tree took 28.50 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/query-miss-24        	  100000	     17388 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/query-hits-24        	  100000	     23041 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/update-24            	   10000	    285406 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100/block-24             	      50	  32491863 ns/op
+Init Tree took 39.88 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/query-miss-24       	   50000	     20981 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/query-hits-24       	   50000	     26644 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/update-24           	   10000	    308292 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-1000/block-24            	      30	  41523898 ns/op
+Init Tree took 264.16 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/query-miss-24      	   50000	     29263 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/query-hits-24      	   50000	     37505 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/update-24          	    5000	    571039 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-10000/block-24           	      20	  75333594 ns/op
+Init Tree took 2676.87 MB
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/query-miss-24     	   10000	    138206 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/query-hits-24     	   10000	    158980 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/update-24         	     500	   3283893 ns/op
+BenchmarkLevelDBLargeData/goleveldb-50000-100-32-100000/block-24          	       5	 407524253 ns/op
+PASS
+ok  	github.com/tendermint/iavl/benchmarks	235.819s
