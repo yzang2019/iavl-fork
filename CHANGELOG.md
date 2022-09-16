@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Improvements
+
+- [#531](https://github.com/cosmos/iavl/pull/531) Upgrade to Fastnode in multiple batches
+- [#547](https://github.com/cosmos/iavl/pull/547) Make useage of Fastnode optional
+
 ## 0.19.1 (August 3, 2022)
 
 ### Improvements
