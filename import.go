@@ -28,7 +28,7 @@ type Importer struct {
 	tree       *MutableTree
 	version    int64
 	batch      db.Batch
-	batchMutex sync.Mutex
+	batchMutex sync.RWMutex
 	batchSize  uint32
 	stack      []*Node
 	chBatch    chan db.Batch
@@ -55,7 +55,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		tree:       tree,
 		version:    version,
 		batch:      tree.ndb.db.NewBatch(),
-		batchMutex: sync.Mutex{},
+		batchMutex: sync.RWMutex{},
 		stack:      make([]*Node, 0, 8),
 		chBatch:    make(chan db.Batch, 1),
 		chNode:     make(chan Node, maxBatchSize),
@@ -63,8 +63,12 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 	}
 
 	go periodicBatchCommit(importer)
-	go serializeAsync(importer)
-	go writeNodeData(importer)
+	for i := 0; i < 8; i++ {
+		go serializeAsync(importer)
+	}
+	for i := 0; i < 8; i++ {
+		go writeNodeData(importer)
+	}
 
 	return importer, nil
 }
@@ -119,21 +123,22 @@ func writeNodeData(i *Importer) {
 	for i.batch != nil {
 		select {
 		case node := <-i.chDataNode:
-			i.batchMutex.Lock()
+			i.batchMutex.RLock()
 			if i.batch != nil {
 				err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
 				if err != nil {
 					panic(err)
 				}
-				i.batchSize++
-				if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
-					i.chBatch <- i.batch
-					i.batch = i.tree.ndb.db.NewBatch()
-					i.batchSize = 0
-				}
+			}
+			i.batchMutex.RUnlock()
+			i.batchMutex.Lock()
+			i.batchSize++
+			if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
+				i.chBatch <- i.batch
+				i.batch = i.tree.ndb.db.NewBatch()
+				i.batchSize = 0
 			}
 			i.batchMutex.Unlock()
-
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -144,6 +149,7 @@ func writeNodeData(i *Importer) {
 // been flushed to the database, but will not be visible.
 func (i *Importer) Close() {
 	i.batchMutex.Lock()
+	defer i.batchMutex.Unlock()
 	fmt.Println("Acquired lock in close")
 
 	if i.batch != nil {
@@ -152,8 +158,7 @@ func (i *Importer) Close() {
 	}
 	i.batch = nil
 	i.tree = nil
-	i.batchMutex.Unlock()
-	fmt.Println("Released lock in close")
+
 }
 
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
