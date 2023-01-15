@@ -116,17 +116,21 @@ func writeNodeData(i *Importer) {
 		select {
 		case node := <-i.chDataNode:
 			i.batchMutex.Lock()
-			err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
+			if i.batch != nil {
+				err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
+
+				if err != nil {
+					panic(err)
+				}
+				i.batchSize++
+				if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
+					i.chBatch <- i.batch
+					i.batch = i.tree.ndb.db.NewBatch()
+					i.batchSize = 0
+				}
+			}
 			i.batchMutex.Unlock()
-			if err != nil {
-				panic(err)
-			}
-			i.batchSize++
-			if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
-				i.chBatch <- i.batch
-				i.batch = i.tree.ndb.db.NewBatch()
-				i.batchSize = 0
-			}
+
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
