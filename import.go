@@ -78,6 +78,7 @@ func periodicBatchCommit(i *Importer) {
 			if err != nil {
 				panic(err)
 			}
+			fmt.Println("Closing batch after batch commit done")
 			nextBatch.Close()
 			batchWriteEnd := time.Now().UnixMicro()
 			batchCommitLatency := batchWriteEnd - batchWriteStart
@@ -117,6 +118,7 @@ func writeNodeData(i *Importer) {
 		case node := <-i.chDataNode:
 			i.batchMutex.Lock()
 			if i.batch != nil {
+				fmt.Println("Writing data to the batch node")
 				err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
 
 				if err != nil {
@@ -143,6 +145,7 @@ func (i *Importer) Close() {
 	i.batchMutex.Lock()
 	defer i.batchMutex.Unlock()
 	if i.batch != nil {
+		fmt.Println("Closing batch now")
 		i.batch.Close()
 	}
 	i.batch = nil
@@ -240,6 +243,7 @@ func (i *Importer) Commit() error {
 			len(i.stack))
 	}
 
+	fmt.Println("Committing batch with write sync")
 	err := i.batch.WriteSync()
 	if err != nil {
 		return err
