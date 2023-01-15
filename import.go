@@ -145,7 +145,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 
 	i.batchSize++
 	if i.batchSize >= maxBatchSize {
-		fmt.Printf("[IAVL IMPORTER] Flushing a batch with batch size %d, items %d, stack size %d, ", totalBytes, i.batchSize, len(i.stack))
+		fmt.Printf("[IAVL IMPORTER] Flushing a batch with batch size %d, items %d, stack size %d \n", totalBytes, i.batchSize, len(i.stack))
 		batchWriteStart := time.Now().UnixMicro()
 		err = i.batch.Write()
 		if err != nil {
