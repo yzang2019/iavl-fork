@@ -138,18 +138,13 @@ func (i *Importer) Close() {
 	i.tree = nil
 }
 
-var totalPartA int64
-var totalPartB int64
-var totalPartC int64
-var totalPartD int64
-var totalBytes int64
+var totalAdd int64
 
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
 // but the imported version is not visible until Commit() is called.
 func (i *Importer) Add(exportNode *ExportNode) error {
 
-	addStart := time.Now().UnixMicro()
 	if i.tree == nil {
 		return ErrNoImport
 	}
@@ -208,8 +203,6 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.stack = i.stack[:stackSize-1]
 	}
 	i.stack = append(i.stack, node)
-	addEnd := time.Now().UnixMicro() - addStart
-	fmt.Printf("[IAVL IMPORTER] Total Import Add latency: %d\n", addEnd/1000)
 
 	return nil
 }
