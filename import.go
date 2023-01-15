@@ -3,6 +3,7 @@ package iavl
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -27,6 +28,7 @@ type Importer struct {
 	tree       *MutableTree
 	version    int64
 	batch      db.Batch
+	batchMutex sync.Mutex
 	batchSize  uint32
 	stack      []*Node
 	chBatch    chan db.Batch
@@ -53,6 +55,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		tree:       tree,
 		version:    version,
 		batch:      tree.ndb.db.NewBatch(),
+		batchMutex: sync.Mutex{},
 		stack:      make([]*Node, 0, 8),
 		chBatch:    make(chan db.Batch, 1),
 		chNode:     make(chan Node, maxBatchSize),
@@ -112,7 +115,9 @@ func writeNodeData(i *Importer) {
 	for i.batch != nil {
 		select {
 		case node := <-i.chDataNode:
+			i.batchMutex.Lock()
 			err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
+			i.batchMutex.Unlock()
 			if err != nil {
 				panic(err)
 			}
@@ -131,6 +136,8 @@ func writeNodeData(i *Importer) {
 // Close frees all resources. It is safe to call multiple times. Uncommitted nodes may already have
 // been flushed to the database, but will not be visible.
 func (i *Importer) Close() {
+	i.batchMutex.Lock()
+	defer i.batchMutex.Unlock()
 	if i.batch != nil {
 		i.batch.Close()
 	}
@@ -209,6 +216,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 // version visible, and updating the tree metadata. It can only be called once, and calls Close()
 // internally.
 func (i *Importer) Commit() error {
+	i.batchMutex.Lock()
+	defer i.batchMutex.Unlock()
 	if i.tree == nil {
 		return ErrNoImport
 	}
