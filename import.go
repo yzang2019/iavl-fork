@@ -227,7 +227,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 // version visible, and updating the tree metadata. It can only be called once, and calls Close()
 // internally.
 func (i *Importer) Commit() error {
-	for len(i.chDataNode) >= 0 || len(i.chNode) >= 0 {
+	for len(i.chDataNode) > 0 || len(i.chNode) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
 	i.batchMutex.Lock()
