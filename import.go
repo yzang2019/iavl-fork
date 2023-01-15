@@ -13,6 +13,7 @@ import (
 
 // maxBatchSize is the maximum size of the import batch before flushing it to the database
 const maxBatchSize = 10000
+const maxPendingBatches = 10
 
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
@@ -57,7 +58,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		batch:      tree.ndb.db.NewBatch(),
 		batchMutex: sync.RWMutex{},
 		stack:      make([]*Node, 0, 8),
-		chBatch:    make(chan db.Batch, 1),
+		chBatch:    make(chan db.Batch, maxPendingBatches),
 		chNode:     make(chan Node, maxBatchSize),
 		chDataNode: make(chan Node, maxBatchSize),
 	}
@@ -68,7 +69,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 	for i := 0; i < 4; i++ {
 		go serializeAsync(importer)
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 1; i++ {
 		go writeNodeData(importer)
 	}
 
