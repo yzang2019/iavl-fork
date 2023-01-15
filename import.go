@@ -230,7 +230,6 @@ func (i *Importer) Commit() error {
 	for len(i.chDataNode) > 0 || len(i.chNode) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
-	i.batchMutex.Lock()
 	fmt.Println("[IAVL] Acquired lock in commit")
 
 	if i.tree == nil {
@@ -270,7 +269,6 @@ func (i *Importer) Commit() error {
 
 	fmt.Println("[IAVL] Closing batch after commit()")
 	i.Close()
-	i.batchMutex.Unlock()
 	fmt.Println("[IAVL] Released lock in commit")
 	return nil
 }
