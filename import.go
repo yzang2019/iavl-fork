@@ -138,8 +138,6 @@ func (i *Importer) Close() {
 	i.tree = nil
 }
 
-var totalAdd int64
-
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
 // but the imported version is not visible until Commit() is called.
