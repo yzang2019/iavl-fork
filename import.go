@@ -229,10 +229,12 @@ func (i *Importer) Commit() error {
 
 	switch len(i.stack) {
 	case 0:
+		fmt.Println("[IAVL] Writing something for case 0")
 		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), []byte{}); err != nil {
 			panic(err)
 		}
 	case 1:
+		fmt.Println("[IAVL] Writing something for case 1")
 		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), i.stack[0].hash); err != nil {
 			panic(err)
 		}
@@ -241,7 +243,7 @@ func (i *Importer) Commit() error {
 			len(i.stack))
 	}
 
-	fmt.Println("Committing batch with write sync")
+	fmt.Println("[IAVL] Committing batch with write sync")
 	err := i.batch.WriteSync()
 	if err != nil {
 		return err
@@ -253,7 +255,7 @@ func (i *Importer) Commit() error {
 		return err
 	}
 
-	fmt.Println("Closing batch after commit()")
+	fmt.Println("[IAVL] Closing batch after commit()")
 	i.Close()
 	return nil
 }
