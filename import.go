@@ -79,7 +79,11 @@ func periodicBatchCommit(i *Importer) {
 				panic(err)
 			}
 			fmt.Println("Closing batch after batch write done")
+			i.batchMutex.Lock()
+			i.batch = i.tree.ndb.db.NewBatch()
+			i.batchSize = 0
 			nextBatch.Close()
+			i.batchMutex.Unlock()
 			batchWriteEnd := time.Now().UnixMicro()
 			batchCommitLatency := batchWriteEnd - batchWriteStart
 			fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
@@ -125,8 +129,6 @@ func writeNodeData(i *Importer) {
 				i.batchSize++
 				if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
 					i.chBatch <- i.batch
-					i.batch = i.tree.ndb.db.NewBatch()
-					i.batchSize = 0
 				}
 			}
 			i.batchMutex.Unlock()
@@ -141,13 +143,16 @@ func writeNodeData(i *Importer) {
 // been flushed to the database, but will not be visible.
 func (i *Importer) Close() {
 	i.batchMutex.Lock()
-	defer i.batchMutex.Unlock()
+	fmt.Println("Acquired lock in close")
+
 	if i.batch != nil {
-		fmt.Println("Closing batch now")
+		fmt.Println("Closing batch now!!!")
 		i.batch.Close()
 	}
 	i.batch = nil
 	i.tree = nil
+	i.batchMutex.Unlock()
+	fmt.Println("Released lock in close")
 }
 
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
@@ -222,7 +227,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 // internally.
 func (i *Importer) Commit() error {
 	i.batchMutex.Lock()
-	defer i.batchMutex.Unlock()
+	fmt.Println("Acquired lock in commit")
+
 	if i.tree == nil {
 		return ErrNoImport
 	}
@@ -257,5 +263,7 @@ func (i *Importer) Commit() error {
 
 	fmt.Println("[IAVL] Closing batch after commit()")
 	i.Close()
+	i.batchMutex.Unlock()
+	fmt.Println("Released lock in commit")
 	return nil
 }
