@@ -258,7 +258,7 @@ func (i *Importer) Commit() error {
 	}
 	fmt.Println("[IAVL] Resetting latest version ")
 	i.tree.ndb.resetLatestVersion(i.version)
-
+	fmt.Println("[IAVL] Loading version ")
 	_, err = i.tree.LoadVersion(i.version)
 	fmt.Println("[IAVL] Loaded version ")
 	if err != nil {

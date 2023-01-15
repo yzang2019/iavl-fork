@@ -366,6 +366,7 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 	latestVersion := int64(0)
 
 	tree.mtx.Lock()
+	fmt.Println("[IAVL] Acquired tree lock ")
 	defer tree.mtx.Unlock()
 
 	var latestRoot []byte
