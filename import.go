@@ -30,8 +30,8 @@ type Importer struct {
 	batchSize  uint32
 	stack      []*Node
 	chBatch    chan db.Batch
-	chNode     chan *Node
-	chDataNode chan *Node
+	chNode     chan Node
+	chDataNode chan Node
 }
 
 // newImporter creates a new Importer for an empty MutableTree.
@@ -55,8 +55,8 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		batch:      tree.ndb.db.NewBatch(),
 		stack:      make([]*Node, 0, 8),
 		chBatch:    make(chan db.Batch, 1),
-		chNode:     make(chan *Node, maxBatchSize),
-		chDataNode: make(chan *Node, maxBatchSize),
+		chNode:     make(chan Node, maxBatchSize),
+		chDataNode: make(chan Node, maxBatchSize),
 	}
 
 	go periodicBatchCommit(importer)
@@ -197,7 +197,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if node.rightNode != nil {
 		node.size += node.rightNode.size
 	}
-	i.chNode <- node
+	i.chNode <- *node
 
 	// Update the stack now that we know there were no errors
 	switch {
