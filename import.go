@@ -80,8 +80,7 @@ func periodicBatchCommit(i *Importer) {
 			}
 			fmt.Println("Closing batch after batch write done")
 			i.batchMutex.Lock()
-			i.batch = i.tree.ndb.db.NewBatch()
-			i.batchSize = 0
+
 			nextBatch.Close()
 			i.batchMutex.Unlock()
 			batchWriteEnd := time.Now().UnixMicro()
@@ -129,6 +128,8 @@ func writeNodeData(i *Importer) {
 				i.batchSize++
 				if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
 					i.chBatch <- i.batch
+					i.batch = i.tree.ndb.db.NewBatch()
+					i.batchSize = 0
 				}
 			}
 			i.batchMutex.Unlock()
