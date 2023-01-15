@@ -225,7 +225,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 // version visible, and updating the tree metadata. It can only be called once, and calls Close()
 // internally.
 func (i *Importer) Commit() error {
-	for len(i.chDataNode) > 0 || len(i.chNode) > 0 {
+	fmt.Println("[IAVL] Waiting to start commit")
+	for len(i.chDataNode) > 0 || len(i.chNode) > 0 || len(i.chBatch) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
 	fmt.Println("[IAVL] Starting to commit")
@@ -267,6 +268,5 @@ func (i *Importer) Commit() error {
 
 	fmt.Println("[IAVL] Closing batch after commit()")
 	i.Close()
-	fmt.Println("[IAVL] Released lock in commit")
 	return nil
 }
