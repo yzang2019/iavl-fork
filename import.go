@@ -29,6 +29,7 @@ type Importer struct {
 	batch     db.Batch
 	batchSize uint32
 	stack     []*Node
+	chBatch   chan db.Batch
 }
 
 // newImporter creates a new Importer for an empty MutableTree.
@@ -46,12 +47,36 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		return nil, errors.New("tree must be empty")
 	}
 
-	return &Importer{
+	var importer = &Importer{
 		tree:    tree,
 		version: version,
 		batch:   tree.ndb.db.NewBatch(),
 		stack:   make([]*Node, 0, 8),
-	}, nil
+		chBatch: make(chan db.Batch, 1),
+	}
+
+	go periodicBatchCommit(importer)
+
+	return importer, nil
+}
+
+func periodicBatchCommit(i *Importer) {
+	for i.batch != nil {
+		time.Sleep(1 * time.Second)
+		select {
+		case nextBatch := <-i.chBatch:
+			batchWriteStart := time.Now().UnixMicro()
+			err := nextBatch.Write()
+			if err != nil {
+				panic(err)
+			}
+			nextBatch.Close()
+			batchWriteEnd := time.Now().UnixMicro()
+			batchCommitLatency := batchWriteEnd - batchWriteStart
+			fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
+		default:
+		}
+	}
 }
 
 // Close frees all resources. It is safe to call multiple times. Uncommitted nodes may already have
@@ -73,6 +98,7 @@ var totalBytes int64
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
 // but the imported version is not visible until Commit() is called.
 func (i *Importer) Add(exportNode *ExportNode) error {
+
 	partAStart := time.Now().UnixMicro()
 	if i.tree == nil {
 		return ErrNoImport
@@ -144,19 +170,12 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	totalPartB += partBEnd - partBStart
 
 	i.batchSize++
-	if i.batchSize >= maxBatchSize {
+	if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
 		fmt.Printf("[IAVL IMPORTER] Flushing a batch with batch size %d, items %d, stack size %d \n", totalBytes, i.batchSize, len(i.stack))
-		batchWriteStart := time.Now().UnixMicro()
-		err = i.batch.Write()
-		if err != nil {
-			return err
-		}
-		i.batch.Close()
+		i.chBatch <- i.batch
 		i.batch = i.tree.ndb.db.NewBatch()
 		i.batchSize = 0
-		batchWriteEnd := time.Now().UnixMicro()
-		batchCommitLatency := batchWriteEnd - batchWriteStart
-		fmt.Printf("[IAVL IMPORTER] Total part a latency: %d, total part B latency: %d, total part C latency: %d, batch commit latency: %d\n", totalPartA/1000, totalPartB/1000, totalPartC/1000, batchCommitLatency/1000)
+		fmt.Printf("[IAVL IMPORTER] Total part a latency: %d, total part B latency: %d, total part C latency: %d\n", totalPartA/1000, totalPartB/1000, totalPartC/1000)
 		totalPartA = 0
 		totalPartB = 0
 		totalPartC = 0
