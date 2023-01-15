@@ -90,7 +90,6 @@ func serializeAsync(i *Importer) {
 	for i.batch != nil {
 		select {
 		case node := <-i.chNode:
-			node._hash()
 			err := node.validate()
 			if err != nil {
 				panic(err)
@@ -197,6 +196,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if node.rightNode != nil {
 		node.size += node.rightNode.size
 	}
+	node._hash()
+
 	i.chNode <- *node
 
 	// Update the stack now that we know there were no errors
