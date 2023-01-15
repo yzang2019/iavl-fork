@@ -20,6 +20,7 @@ type Node struct {
 	hash      []byte
 	leftHash  []byte
 	rightHash []byte
+	data      []byte
 	version   int64
 	size      int64
 	leftNode  *Node

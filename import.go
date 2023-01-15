@@ -24,12 +24,14 @@ var ErrNoImport = errors.New("no import in progress")
 // Importer is not concurrency-safe, it is the caller's responsibility to ensure the tree is not
 // modified while performing an import.
 type Importer struct {
-	tree      *MutableTree
-	version   int64
-	batch     db.Batch
-	batchSize uint32
-	stack     []*Node
-	chBatch   chan db.Batch
+	tree       *MutableTree
+	version    int64
+	batch      db.Batch
+	batchSize  uint32
+	stack      []*Node
+	chBatch    chan db.Batch
+	chNode     chan *Node
+	chDataNode chan *Node
 }
 
 // newImporter creates a new Importer for an empty MutableTree.
@@ -48,21 +50,24 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 	}
 
 	var importer = &Importer{
-		tree:    tree,
-		version: version,
-		batch:   tree.ndb.db.NewBatch(),
-		stack:   make([]*Node, 0, 8),
-		chBatch: make(chan db.Batch, 1),
+		tree:       tree,
+		version:    version,
+		batch:      tree.ndb.db.NewBatch(),
+		stack:      make([]*Node, 0, 8),
+		chBatch:    make(chan db.Batch, 1),
+		chNode:     make(chan *Node, maxBatchSize),
+		chDataNode: make(chan *Node, maxBatchSize),
 	}
 
 	go periodicBatchCommit(importer)
+	go serializeAsync(importer)
+	go writeNodeData(importer)
 
 	return importer, nil
 }
 
 func periodicBatchCommit(i *Importer) {
 	for i.batch != nil {
-		time.Sleep(200 * time.Millisecond)
 		select {
 		case nextBatch := <-i.chBatch:
 			batchWriteStart := time.Now().UnixMicro()
@@ -75,9 +80,53 @@ func periodicBatchCommit(i *Importer) {
 			batchCommitLatency := batchWriteEnd - batchWriteStart
 			fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
 		default:
+			time.Sleep(1 * time.Second)
 		}
 	}
 	fmt.Printf("[IAVL IMPORTER] Shutting down the batch commit thread\n")
+}
+
+func serializeAsync(i *Importer) {
+	for i.batch != nil {
+		select {
+		case node := <-i.chNode:
+			node._hash()
+			err := node.validate()
+			if err != nil {
+				panic(err)
+			}
+
+			var buf bytes.Buffer
+			err = node.writeBytes(&buf)
+			node.data = buf.Bytes()
+			if err != nil {
+				panic(err)
+			}
+			i.chDataNode <- node
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func writeNodeData(i *Importer) {
+	for i.batch != nil {
+		select {
+		case node := <-i.chDataNode:
+			err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
+			if err != nil {
+				panic(err)
+			}
+			i.batchSize++
+			if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
+				i.chBatch <- i.batch
+				i.batch = i.tree.ndb.db.NewBatch()
+				i.batchSize = 0
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }
 
 // Close frees all resources. It is safe to call multiple times. Uncommitted nodes may already have
@@ -101,7 +150,7 @@ var totalBytes int64
 // but the imported version is not visible until Commit() is called.
 func (i *Importer) Add(exportNode *ExportNode) error {
 
-	partAStart := time.Now().UnixMicro()
+	addStart := time.Now().UnixMicro()
 	if i.tree == nil {
 		return ErrNoImport
 	}
@@ -148,46 +197,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if node.rightNode != nil {
 		node.size += node.rightNode.size
 	}
-	partBStart := time.Now().UnixMicro()
-	totalPartA += partBStart - partAStart
+	i.chNode <- node
 
-	node._hash()
-	err := node.validate()
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	err = node.writeBytes(&buf)
-	if err != nil {
-		return err
-	}
-	partBEnd := time.Now().UnixMicro()
-	totalPartB += partBEnd - partBStart
-
-	data := buf.Bytes()
-	totalBytes += int64(len(data))
-	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), data); err != nil {
-		return err
-	}
-	partCEnd := time.Now().UnixMicro()
-	totalPartC += partCEnd - partBEnd
-
-	i.batchSize++
-	if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
-		fmt.Printf("[IAVL IMPORTER] Flushing a batch with batch size %d, items %d, stack size %d \n", totalBytes, i.batchSize, len(i.stack))
-		i.chBatch <- i.batch
-		i.batch = i.tree.ndb.db.NewBatch()
-		i.batchSize = 0
-		fmt.Printf("[IAVL IMPORTER] Total part A latency: %d, total part B latency: %d, total part C latency: %d, total part D latency: %d\n", totalPartA/1000, totalPartB/1000, totalPartC/1000, totalPartD/1000)
-		totalPartA = 0
-		totalPartB = 0
-		totalPartC = 0
-		totalPartD = 0
-		totalBytes = 0
-	}
-
-	partDStart := time.Now().UnixMicro()
 	// Update the stack now that we know there were no errors
 	switch {
 	case node.leftHash != nil && node.rightHash != nil:
@@ -196,8 +207,9 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.stack = i.stack[:stackSize-1]
 	}
 	i.stack = append(i.stack, node)
-	partDEnd := time.Now().UnixMicro()
-	totalPartD += partDEnd - partDStart
+	addEnd := time.Now().UnixMicro() - addStart
+	fmt.Printf("[IAVL IMPORTER] Total Import Add latency: %d\n", addEnd/1000)
+
 	return nil
 }
 
