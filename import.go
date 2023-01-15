@@ -228,7 +228,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 // internally.
 func (i *Importer) Commit() error {
 	i.batchMutex.Lock()
-	fmt.Println("Acquired lock in commit")
+	fmt.Println("[IAVL] Acquired lock in commit")
 
 	if i.tree == nil {
 		return ErrNoImport
@@ -253,11 +253,14 @@ func (i *Importer) Commit() error {
 	fmt.Println("[IAVL] Committing batch with write sync")
 	err := i.batch.WriteSync()
 	if err != nil {
+		fmt.Printf("[IAVL] Committing batch hitting some err: %s", err.Error())
 		return err
 	}
+	fmt.Println("[IAVL] Resetting latest version ")
 	i.tree.ndb.resetLatestVersion(i.version)
 
 	_, err = i.tree.LoadVersion(i.version)
+	fmt.Println("[IAVL] Loaded version ")
 	if err != nil {
 		return err
 	}
@@ -265,6 +268,6 @@ func (i *Importer) Commit() error {
 	fmt.Println("[IAVL] Closing batch after commit()")
 	i.Close()
 	i.batchMutex.Unlock()
-	fmt.Println("Released lock in commit")
+	fmt.Println("[IAVL] Released lock in commit")
 	return nil
 }
