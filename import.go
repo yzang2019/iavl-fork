@@ -62,7 +62,8 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		chNode:     make(chan Node, maxBatchSize),
 		chDataNode: make(chan Node, maxBatchSize),
 	}
-	for i := 0; i < 8; i++ {
+
+	for i := 0; i < 4; i++ {
 		go periodicBatchCommit(importer)
 	}
 
@@ -131,14 +132,12 @@ func writeNodeData(i *Importer) {
 				}
 			}
 			i.batchMutex.RUnlock()
-			i.batchMutex.Lock()
 			i.batchSize++
-			if i.batchSize >= maxBatchSize {
+			if i.batchSize >= maxBatchSize && len(i.chBatch) < maxPendingBatches {
 				i.chBatch <- i.batch
 				i.batch = i.tree.ndb.db.NewBatch()
 				i.batchSize = 0
 			}
-			i.batchMutex.Unlock()
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
