@@ -12,7 +12,7 @@ import (
 )
 
 // maxBatchSize is the maximum size of the import batch before flushing it to the database
-const maxBatchSize = 50000
+const maxBatchSize = 20000
 
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
@@ -58,8 +58,8 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		batchMutex: sync.RWMutex{},
 		stack:      make([]*Node, 0, 8),
 		chBatch:    make(chan db.Batch, 1),
-		chNode:     make(chan Node, 1000),
-		chDataNode: make(chan Node, 1000),
+		chNode:     make(chan Node, maxBatchSize),
+		chDataNode: make(chan Node, maxBatchSize),
 	}
 
 	go periodicBatchCommit(importer)
