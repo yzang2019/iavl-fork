@@ -85,7 +85,10 @@ func (ndb *nodeDB) GetNode(hash []byte) *Node {
 	fmt.Println("[NDB] after check ")
 
 	// Doesn't exist, load.
-	buf, err := ndb.db.Get(ndb.nodeKey(hash))
+	key := ndb.nodeKey(hash)
+	fmt.Println("[NDB] after get key ")
+	buf, err := ndb.db.Get(key)
+	fmt.Println("[NDB] after get node ")
 	if err != nil {
 		panic(fmt.Sprintf("can't get node %X: %v", hash, err))
 	}
