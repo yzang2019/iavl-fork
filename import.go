@@ -67,6 +67,7 @@ func (i *Importer) Close() {
 var totalPartA int64
 var totalPartB int64
 var totalPartC int64
+var totalBytes int64
 
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
@@ -119,6 +120,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if node.rightNode != nil {
 		node.size += node.rightNode.size
 	}
+	partBStart := time.Now().UnixMicro()
+	totalPartA += partBStart - partAStart
 
 	node._hash()
 	err := node.validate()
@@ -131,9 +134,10 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if err != nil {
 		return err
 	}
-	partBStart := time.Now().UnixMicro()
-	totalPartA += partBStart - partAStart
-	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes()); err != nil {
+
+	data := buf.Bytes()
+	totalBytes += int64(len(data))
+	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), data); err != nil {
 		return err
 	}
 	partBEnd := time.Now().UnixMicro()
@@ -141,6 +145,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 
 	i.batchSize++
 	if i.batchSize >= maxBatchSize {
+		fmt.Printf("[IAVL IMPORTER] Flushing a batch with batch size %d, items %d, stack size %d, ", totalBytes, i.batchSize, len(i.stack))
 		batchWriteStart := time.Now().UnixMicro()
 		err = i.batch.Write()
 		if err != nil {
@@ -151,10 +156,11 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.batchSize = 0
 		batchWriteEnd := time.Now().UnixMicro()
 		batchCommitLatency := batchWriteEnd - batchWriteStart
-		fmt.Printf("[IAVL IMPORTER] Total part a latency: %d, total part B latency: %d, total part C latency: %d, batch commit latency: %d\n", totalPartA, totalPartB, totalPartC, batchCommitLatency)
+		fmt.Printf("[IAVL IMPORTER] Total part a latency: %d, total part B latency: %d, total part C latency: %d, batch commit latency: %d\n", totalPartA/1000, totalPartB/1000, totalPartC/1000, batchCommitLatency/1000)
 		totalPartA = 0
 		totalPartB = 0
 		totalPartC = 0
+		totalBytes = 0
 	}
 
 	partCStart := time.Now().UnixMicro()
