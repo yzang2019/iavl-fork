@@ -62,7 +62,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 
 func periodicBatchCommit(i *Importer) {
 	for i.batch != nil {
-		time.Sleep(1 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 		select {
 		case nextBatch := <-i.chBatch:
 			batchWriteStart := time.Now().UnixMicro()
@@ -77,6 +77,7 @@ func periodicBatchCommit(i *Importer) {
 		default:
 		}
 	}
+	fmt.Printf("[IAVL IMPORTER] Shutting down the batch commit thread\n")
 }
 
 // Close frees all resources. It is safe to call multiple times. Uncommitted nodes may already have
@@ -92,6 +93,7 @@ func (i *Importer) Close() {
 var totalPartA int64
 var totalPartB int64
 var totalPartC int64
+var totalPartD int64
 var totalBytes int64
 
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
@@ -160,14 +162,16 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if err != nil {
 		return err
 	}
+	partBEnd := time.Now().UnixMicro()
+	totalPartB += partBEnd - partBStart
 
 	data := buf.Bytes()
 	totalBytes += int64(len(data))
 	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), data); err != nil {
 		return err
 	}
-	partBEnd := time.Now().UnixMicro()
-	totalPartB += partBEnd - partBStart
+	partCEnd := time.Now().UnixMicro()
+	totalPartC += partCEnd - partBEnd
 
 	i.batchSize++
 	if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
@@ -175,14 +179,15 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.chBatch <- i.batch
 		i.batch = i.tree.ndb.db.NewBatch()
 		i.batchSize = 0
-		fmt.Printf("[IAVL IMPORTER] Total part a latency: %d, total part B latency: %d, total part C latency: %d\n", totalPartA/1000, totalPartB/1000, totalPartC/1000)
+		fmt.Printf("[IAVL IMPORTER] Total part A latency: %d, total part B latency: %d, total part C latency: %d, total part D latency: %d\n", totalPartA/1000, totalPartB/1000, totalPartC/1000, totalPartD/1000)
 		totalPartA = 0
 		totalPartB = 0
 		totalPartC = 0
+		totalPartD = 0
 		totalBytes = 0
 	}
 
-	partCStart := time.Now().UnixMicro()
+	partDStart := time.Now().UnixMicro()
 	// Update the stack now that we know there were no errors
 	switch {
 	case node.leftHash != nil && node.rightHash != nil:
@@ -191,8 +196,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.stack = i.stack[:stackSize-1]
 	}
 	i.stack = append(i.stack, node)
-	partCEnd := time.Now().UnixMicro()
-	totalPartC += partCEnd - partCStart
+	partDEnd := time.Now().UnixMicro()
+	totalPartD += partDEnd - partDStart
 	return nil
 }
 
