@@ -2,6 +2,8 @@ package iavl
 
 import (
 	"bytes"
+	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -62,10 +64,15 @@ func (i *Importer) Close() {
 	i.tree = nil
 }
 
+var totalPartA int64
+var totalPartB int64
+var totalPartC int64
+
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
 // but the imported version is not visible until Commit() is called.
 func (i *Importer) Add(exportNode *ExportNode) error {
+	partAStart := time.Now().UnixMicro()
 	if i.tree == nil {
 		return ErrNoImport
 	}
@@ -124,13 +131,17 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	if err != nil {
 		return err
 	}
-
+	partBStart := time.Now().UnixMicro()
+	totalPartA += partBStart - partAStart
 	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes()); err != nil {
 		return err
 	}
+	partBEnd := time.Now().UnixMicro()
+	totalPartB += partBEnd - partBStart
 
 	i.batchSize++
 	if i.batchSize >= maxBatchSize {
+		batchWriteStart := time.Now().UnixMicro()
 		err = i.batch.Write()
 		if err != nil {
 			return err
@@ -138,8 +149,15 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.batch.Close()
 		i.batch = i.tree.ndb.db.NewBatch()
 		i.batchSize = 0
+		batchWriteEnd := time.Now().UnixMicro()
+		batchCommitLatency := batchWriteEnd - batchWriteStart
+		fmt.Printf("[IAVL IMPORTER] Total part a latency: %d, total part B latency: %d, total part C latency: %d, batch commit latency: %d\n", totalPartA, totalPartB, totalPartC, batchCommitLatency)
+		totalPartA = 0
+		totalPartB = 0
+		totalPartC = 0
 	}
 
+	partCStart := time.Now().UnixMicro()
 	// Update the stack now that we know there were no errors
 	switch {
 	case node.leftHash != nil && node.rightHash != nil:
@@ -148,7 +166,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.stack = i.stack[:stackSize-1]
 	}
 	i.stack = append(i.stack, node)
-
+	partCEnd := time.Now().UnixMicro()
+	totalPartC += partCEnd - partCStart
 	return nil
 }
 
