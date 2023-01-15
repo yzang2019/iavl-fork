@@ -90,9 +90,11 @@ func (ndb *nodeDB) GetNode(hash []byte) *Node {
 	buf, err := ndb.db.Get(key)
 	fmt.Println("[NDB] after get node ")
 	if err != nil {
+		fmt.Printf("[NDB] error is %s \n", err.Error())
 		panic(fmt.Sprintf("can't get node %X: %v", hash, err))
 	}
 	if buf == nil {
+		fmt.Printf("[NDB] Value missing for key %s \n", key)
 		panic(fmt.Sprintf("Value missing for hash %x corresponding to nodeKey %x", hash, ndb.nodeKey(hash)))
 	}
 	fmt.Println("[NDB] before make node ")
