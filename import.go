@@ -61,12 +61,14 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		chNode:     make(chan Node, maxBatchSize),
 		chDataNode: make(chan Node, maxBatchSize),
 	}
-
-	go periodicBatchCommit(importer)
 	for i := 0; i < 8; i++ {
+		go periodicBatchCommit(importer)
+	}
+
+	for i := 0; i < 4; i++ {
 		go serializeAsync(importer)
 	}
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 4; i++ {
 		go writeNodeData(importer)
 	}
 
@@ -91,7 +93,7 @@ func periodicBatchCommit(i *Importer) {
 			batchCommitLatency := batchWriteEnd - batchWriteStart
 			fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
 		default:
-			time.Sleep(1 * time.Second)
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 	fmt.Printf("[IAVL IMPORTER] Shutting down the batch commit thread\n")
@@ -133,7 +135,7 @@ func writeNodeData(i *Importer) {
 			i.batchMutex.RUnlock()
 			i.batchMutex.Lock()
 			i.batchSize++
-			if i.batchSize >= maxBatchSize && len(i.chBatch) <= 0 {
+			if i.batchSize >= maxBatchSize {
 				i.chBatch <- i.batch
 				i.batch = i.tree.ndb.db.NewBatch()
 				i.batchSize = 0
