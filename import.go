@@ -85,10 +85,7 @@ func periodicBatchCommit(i *Importer) {
 				panic(err)
 			}
 			fmt.Println("Closing batch after batch write done")
-			i.batchMutex.Lock()
-
 			nextBatch.Close()
-			i.batchMutex.Unlock()
 			batchWriteEnd := time.Now().UnixMicro()
 			batchCommitLatency := batchWriteEnd - batchWriteStart
 			fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
@@ -237,7 +234,7 @@ func (i *Importer) Commit() error {
 	for len(i.chDataNode) > 0 || len(i.chNode) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
-	fmt.Println("[IAVL] Acquired lock in commit")
+	fmt.Println("[IAVL] Starting to commit")
 
 	if i.tree == nil {
 		return ErrNoImport
