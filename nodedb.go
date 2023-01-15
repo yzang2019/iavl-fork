@@ -69,6 +69,7 @@ func newNodeDB(db dbm.DB, cacheSize int, opts *Options) *nodeDB {
 // load its children.
 func (ndb *nodeDB) GetNode(hash []byte) *Node {
 	ndb.mtx.Lock()
+	fmt.Println("[NDB] Acquired lock ")
 	defer ndb.mtx.Unlock()
 
 	if len(hash) == 0 {
@@ -81,6 +82,7 @@ func (ndb *nodeDB) GetNode(hash []byte) *Node {
 		ndb.nodeCacheQueue.MoveToBack(elem)
 		return elem.Value.(*Node)
 	}
+	fmt.Println("[NDB] after check ")
 
 	// Doesn't exist, load.
 	buf, err := ndb.db.Get(ndb.nodeKey(hash))
@@ -90,16 +92,19 @@ func (ndb *nodeDB) GetNode(hash []byte) *Node {
 	if buf == nil {
 		panic(fmt.Sprintf("Value missing for hash %x corresponding to nodeKey %x", hash, ndb.nodeKey(hash)))
 	}
+	fmt.Println("[NDB] before make node ")
 
 	node, err := MakeNode(buf)
 	if err != nil {
 		panic(fmt.Sprintf("Error reading Node. bytes: %x, error: %v", buf, err))
 	}
+	fmt.Println("[NDB] after make node ")
 
 	node.hash = hash
 	node.persisted = true
 	ndb.cacheNode(node)
 
+	fmt.Println("[NDB] returning ")
 	return node
 }
 
