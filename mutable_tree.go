@@ -380,16 +380,19 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 			firstVersion = version
 		}
 	}
+	fmt.Println("[IAVL] for loop end ")
 
 	if !(targetVersion == 0 || latestVersion == targetVersion) {
 		return latestVersion, fmt.Errorf("wanted to load target %v but only found up to %v",
 			targetVersion, latestVersion)
 	}
 
+	fmt.Println("[IAVL] if end ")
 	if firstVersion > 0 && firstVersion < int64(tree.ndb.opts.InitialVersion) {
 		return latestVersion, fmt.Errorf("initial version set to %v, but found earlier version %v",
 			tree.ndb.opts.InitialVersion, firstVersion)
 	}
+	fmt.Println("[IAVL] if 2 end ")
 
 	t := &ImmutableTree{
 		ndb:     tree.ndb,
@@ -399,11 +402,13 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 	if len(latestRoot) != 0 {
 		t.root = tree.ndb.GetNode(latestRoot)
 	}
+	fmt.Println("[IAVL] if 3 end ")
 
 	tree.orphans = map[string]int64{}
 	tree.ImmutableTree = t
 	tree.lastSaved = t.clone()
 	tree.allRootLoaded = true
+	fmt.Println("[IAVL] returning ")
 
 	return latestVersion, nil
 }
