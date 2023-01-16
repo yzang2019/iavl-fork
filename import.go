@@ -16,6 +16,7 @@ const maxBatchSize = 20000
 
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
+var TotalAggregateBytes int64
 
 // Importer imports data into an empty MutableTree. It is created by MutableTree.Import(). Users
 // must call Close() when done.
@@ -104,6 +105,7 @@ func serializeAsync(i *Importer) {
 			var buf bytes.Buffer
 			err = node.writeBytes(&buf)
 			node.data = buf.Bytes()
+			TotalAggregateBytes += int64(len(node.data))
 			if err != nil {
 				panic(err)
 			}
@@ -266,7 +268,7 @@ func (i *Importer) Commit() error {
 		return err
 	}
 
-	fmt.Println("[IAVL] Closing batch after commit()")
+	fmt.Printf("[IAVL] Closing batch after commit(), total size is %d \n", TotalAggregateBytes)
 	i.Close()
 	return nil
 }
