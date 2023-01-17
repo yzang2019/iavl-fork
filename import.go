@@ -35,16 +35,18 @@ var TotalBatchWriteLatency int64
 // Importer is not concurrency-safe, it is the caller's responsibility to ensure the tree is not
 // modified while performing an import.
 type Importer struct {
-	tree       *MutableTree
-	version    int64
-	batch      db.Batch
-	batchMutex sync.RWMutex
-	batchSize  uint32
-	stack      []*Node
-	chBatch    chan db.Batch
-	chNode     chan Node
-	chNodeData chan NodeData
-	chanDoneWG sync.WaitGroup
+	tree         *MutableTree
+	version      int64
+	batch        db.Batch
+	batchMutex   sync.RWMutex
+	batchSize    uint32
+	stack        []*Node
+	chBatch      chan db.Batch
+	chBatchWg    sync.WaitGroup
+	chNode       chan Node
+	chNodeWg     sync.WaitGroup
+	chNodeData   chan NodeData
+	chNodeDataWg sync.WaitGroup
 }
 
 type NodeData struct {
@@ -68,24 +70,26 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 	}
 
 	var importer = &Importer{
-		tree:       tree,
-		version:    version,
-		batch:      tree.ndb.db.NewBatch(),
-		batchMutex: sync.RWMutex{},
-		stack:      make([]*Node, 0, 8),
-		chBatch:    make(chan db.Batch, 1),
-		chNode:     make(chan Node, maxBatchSize),
-		chNodeData: make(chan NodeData, maxBatchSize),
-		chanDoneWG: sync.WaitGroup{},
+		tree:         tree,
+		version:      version,
+		batch:        tree.ndb.db.NewBatch(),
+		batchMutex:   sync.RWMutex{},
+		stack:        make([]*Node, 0, 8),
+		chBatch:      make(chan db.Batch, 1),
+		chBatchWg:    sync.WaitGroup{},
+		chNode:       make(chan Node, maxBatchSize),
+		chNodeWg:     sync.WaitGroup{},
+		chNodeData:   make(chan NodeData, maxBatchSize),
+		chNodeDataWg: sync.WaitGroup{},
 	}
 
-	importer.chanDoneWG.Add(1)
+	importer.chBatchWg.Add(1)
 	go periodicBatchCommit(importer)
 
-	importer.chanDoneWG.Add(1)
+	importer.chNodeWg.Add(1)
 	go serializeAsync(importer)
 
-	importer.chanDoneWG.Add(1)
+	importer.chNodeDataWg.Add(1)
 	go writeNodeData(importer)
 
 	return importer, nil
@@ -110,7 +114,7 @@ func periodicBatchCommit(i *Importer) {
 		fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
 
 	}
-	i.chanDoneWG.Done()
+	i.chBatchWg.Done()
 	fmt.Printf("[IAVL IMPORTER] Shutting down the batch commit thread\n")
 }
 
@@ -146,20 +150,20 @@ func serializeAsync(i *Importer) {
 		}
 
 	}
-	i.chanDoneWG.Done()
+	i.chNodeWg.Done()
 	fmt.Printf("[IAVL IMPORTER] Shutting down the serializeAsync thread\n")
 }
 
 func writeNodeData(i *Importer) {
 	for i.batch != nil {
-		nodedata, chanOpen := <-i.chNodeData
+		nodeData, chanOpen := <-i.chNodeData
 		if !chanOpen {
 			break
 		}
 		start := time.Now().UnixMicro()
 		i.batchMutex.RLock()
 		if i.batch != nil {
-			err := i.batch.Set(i.tree.ndb.nodeKey(nodedata.node.hash), nodedata.data)
+			err := i.batch.Set(i.tree.ndb.nodeKey(nodeData.node.hash), nodeData.data)
 			if err != nil {
 				panic(err)
 			}
@@ -173,7 +177,7 @@ func writeNodeData(i *Importer) {
 			i.batchSize = 0
 		}
 	}
-	i.chanDoneWG.Done()
+	i.chNodeDataWg.Done()
 	fmt.Printf("[IAVL IMPORTER] Shutting down the writeNodeData thread\n")
 }
 
@@ -268,10 +272,12 @@ func (i *Importer) Commit() error {
 	for len(i.chNodeData) > 0 || len(i.chNode) > 0 || len(i.chBatch) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
-	close(i.chNodeData)
 	close(i.chNode)
+	i.chNodeWg.Wait()
+	close(i.chNodeData)
+	i.chNodeDataWg.Wait()
 	close(i.chBatch)
-	i.chanDoneWG.Wait()
+	i.chBatchWg.Wait()
 
 	fmt.Println("[IAVL] Starting to commit")
 
