@@ -14,9 +14,18 @@ import (
 // maxBatchSize is the maximum size of the import batch before flushing it to the database
 const maxBatchSize = 20000
 
+var bufPool = &sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
 var TotalAggregateBytes int64
+var TotalSerializeLatency int64
+var TotalSetLatency int64
+var TotalBatchWriteLatency int64
 
 // Importer imports data into an empty MutableTree. It is created by MutableTree.Import(). Users
 // must call Close() when done.
@@ -34,7 +43,13 @@ type Importer struct {
 	stack      []*Node
 	chBatch    chan db.Batch
 	chNode     chan Node
-	chDataNode chan Node
+	chNodeData chan NodeData
+	chanDoneWG sync.WaitGroup
+}
+
+type NodeData struct {
+	node Node
+	data []byte
 }
 
 // newImporter creates a new Importer for an empty MutableTree.
@@ -60,13 +75,17 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		stack:      make([]*Node, 0, 8),
 		chBatch:    make(chan db.Batch, 1),
 		chNode:     make(chan Node, maxBatchSize),
-		chDataNode: make(chan Node, maxBatchSize),
+		chNodeData: make(chan NodeData, maxBatchSize),
+		chanDoneWG: sync.WaitGroup{},
 	}
 
+	importer.chanDoneWG.Add(1)
 	go periodicBatchCommit(importer)
 
+	importer.chanDoneWG.Add(1)
 	go serializeAsync(importer)
 
+	importer.chanDoneWG.Add(1)
 	go writeNodeData(importer)
 
 	return importer, nil
@@ -74,70 +93,88 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 
 func periodicBatchCommit(i *Importer) {
 	for i.batch != nil {
-		select {
-		case nextBatch := <-i.chBatch:
-			batchWriteStart := time.Now().UnixMicro()
-			err := nextBatch.Write()
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println("Closing batch after batch write done")
-			nextBatch.Close()
-			batchWriteEnd := time.Now().UnixMicro()
-			batchCommitLatency := batchWriteEnd - batchWriteStart
-			fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
-		default:
-			time.Sleep(10 * time.Millisecond)
+		nextBatch, chanOpen := <-i.chBatch
+		if !chanOpen {
+			break
 		}
+		batchWriteStart := time.Now().UnixMicro()
+		err := nextBatch.Write()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("Closing batch after batch write done")
+		nextBatch.Close()
+		batchWriteEnd := time.Now().UnixMicro()
+		batchCommitLatency := batchWriteEnd - batchWriteStart
+		TotalBatchWriteLatency += batchCommitLatency
+		fmt.Printf("[IAVL IMPORTER] Batch commit latency: %d\n", batchCommitLatency/1000)
+
 	}
+	i.chanDoneWG.Done()
 	fmt.Printf("[IAVL IMPORTER] Shutting down the batch commit thread\n")
 }
 
 func serializeAsync(i *Importer) {
 	for i.batch != nil {
-		select {
-		case node := <-i.chNode:
-			err := node.validate()
-			if err != nil {
-				panic(err)
-			}
+		start := time.Now().UnixMicro()
+		currNode, chanOpen := <-i.chNode
 
-			var buf bytes.Buffer
-			err = node.writeBytes(&buf)
-			node.data = buf.Bytes()
-			TotalAggregateBytes += int64(len(node.data))
-			if err != nil {
-				panic(err)
-			}
-			i.chDataNode <- node
-		default:
-			time.Sleep(10 * time.Millisecond)
+		if !chanOpen {
+			break
 		}
+
+		err := currNode.validate()
+		if err != nil {
+			panic(err)
+		}
+
+		buf := bufPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		if err = currNode.writeBytes(buf); err != nil {
+			panic(err)
+		}
+		bytesCopy := make([]byte, buf.Len())
+		copy(bytesCopy, buf.Bytes())
+
+		bufPool.Put(buf)
+
+		TotalAggregateBytes += int64(len(bytesCopy))
+		TotalSerializeLatency += time.Now().UnixMicro() - start
+		i.chNodeData <- NodeData{
+			node: currNode,
+			data: bytesCopy,
+		}
+
 	}
+	i.chanDoneWG.Done()
+	fmt.Printf("[IAVL IMPORTER] Shutting down the serializeAsync thread\n")
 }
 
 func writeNodeData(i *Importer) {
 	for i.batch != nil {
-		select {
-		case node := <-i.chDataNode:
-			i.batchMutex.RLock()
-			if i.batch != nil {
-				err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), node.data)
-				if err != nil {
-					panic(err)
-				}
+		nodedata, chanOpen := <-i.chNodeData
+		if !chanOpen {
+			break
+		}
+		start := time.Now().UnixMicro()
+		i.batchMutex.RLock()
+		if i.batch != nil {
+			err := i.batch.Set(i.tree.ndb.nodeKey(nodedata.node.hash), nodedata.data)
+			if err != nil {
+				panic(err)
 			}
-			i.batchMutex.RUnlock()
-			i.batchSize++
-			if i.batchSize >= maxBatchSize && len(i.chBatch) < 1 {
-				i.chBatch <- i.batch
-				i.batch = i.tree.ndb.db.NewBatch()
-				i.batchSize = 0
-			}
-		default:
-			time.Sleep(10 * time.Millisecond)
+		}
+		TotalSetLatency += time.Now().UnixMicro() - start
+		i.batchMutex.RUnlock()
+		i.batchSize++
+		if i.batchSize >= maxBatchSize && len(i.chBatch) < 1 {
+			i.chBatch <- i.batch
+			i.batch = i.tree.ndb.db.NewBatch()
+			i.batchSize = 0
 		}
 	}
+	i.chanDoneWG.Done()
+	fmt.Printf("[IAVL IMPORTER] Shutting down the writeNodeData thread\n")
 }
 
 // Close frees all resources. It is safe to call multiple times. Uncommitted nodes may already have
@@ -218,7 +255,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	case node.leftHash != nil || node.rightHash != nil:
 		i.stack = i.stack[:stackSize-1]
 	}
-	i.stack = append(i.stack, node)
+	i.stack = append(i.stack, &Node{hash: node.hash, height: node.height, size: node.size})
 
 	return nil
 }
@@ -228,9 +265,14 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 // internally.
 func (i *Importer) Commit() error {
 	fmt.Println("[IAVL] Waiting to start commit")
-	for len(i.chDataNode) > 0 || len(i.chNode) > 0 || len(i.chBatch) > 0 {
+	for len(i.chNodeData) > 0 || len(i.chNode) > 0 || len(i.chBatch) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
+	close(i.chNodeData)
+	close(i.chNode)
+	close(i.chBatch)
+	i.chanDoneWG.Wait()
+
 	fmt.Println("[IAVL] Starting to commit")
 
 	if i.tree == nil {
@@ -269,6 +311,8 @@ func (i *Importer) Commit() error {
 	}
 
 	fmt.Printf("[IAVL] Closing batch after commit(), total size is %d \n", TotalAggregateBytes)
+	fmt.Printf("[IAVL] TotalSerialize latency is: %d, TotalSetDataLatency is: %d, TotalBatchWriteLatency is:%d \n", TotalSerializeLatency, TotalSetLatency, TotalBatchWriteLatency)
+
 	i.Close()
 	return nil
 }
