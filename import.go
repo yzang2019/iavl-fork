@@ -226,14 +226,14 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		data: buf.Bytes(),
 	}
 
-	i.chNodeData <- nodeData
-
 	// Check errors
 	select {
-	case err := <-i.chError:
+	case err = <-i.chError:
 		return err
 	default:
 	}
+
+	i.chNodeData <- nodeData
 
 	// Update the stack now that we know there were no errors
 	switch {
