@@ -228,7 +228,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 
 	// Check errors
 	select {
-	case err = <-i.chError:
+	case err := <-i.chError:
+		fmt.Printf("[IAVL-DEBUG] We are returning an error here!\n")
 		return err
 	default:
 	}
