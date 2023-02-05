@@ -80,7 +80,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		allChannelClosed: atomic.Bool{},
 	}
 
-	importer.chBatchWg.Add(1)
+	importer.chNodeDataWg.Add(1)
 	go setBatchData(importer)
 
 	importer.chBatchWg.Add(1)
