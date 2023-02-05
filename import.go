@@ -13,8 +13,8 @@ import (
 // desiredBatchSize is the desired batch write size of the import batch before flushing it to the database.
 // The actual batch write size could exceed this value based on how fast the batch write goes through.
 // If there's an ongoing pending batch write, we will keep batching more until the ongoing batch write completes.
-const defaultDesiredBatchSize = 50000
-const defaultMaxBatchSize = 100000
+const defaultDesiredBatchSize = 20000
+const defaultMaxBatchSize = 500000
 
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
@@ -72,7 +72,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		batchMtx:         sync.RWMutex{},
 		desiredBatchSize: defaultDesiredBatchSize,
 		maxBatchSize:     defaultMaxBatchSize,
-		chNodeData:       make(chan NodeData, defaultMaxBatchSize),
+		chNodeData:       make(chan NodeData, 2*defaultDesiredBatchSize),
 		chNodeDataWg:     sync.WaitGroup{},
 		chBatch:          make(chan db.Batch, 1),
 		chBatchWg:        sync.WaitGroup{},
