@@ -132,7 +132,6 @@ func batchWrite(i *Importer) {
 	for i.batch != nil {
 		if nextBatch, open := <-i.chBatch; open {
 			err := nextBatch.Write()
-			err = errors.New("panic error")
 			if err != nil {
 				i.chError <- err
 				break
