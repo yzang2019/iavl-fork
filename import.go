@@ -13,8 +13,8 @@ import (
 // desiredBatchSize is the desired batch write size of the import batch before flushing it to the database.
 // The actual batch write size could exceed this value based on how fast the batch write goes through.
 // If there's an ongoing pending batch write, we will keep batching more until the ongoing batch write completes.
-const defaultDesiredBatchSize = 20000
-const defaultMaxBatchSize = 200000
+const defaultDesiredBatchSize = 10000
+const defaultMaxBatchSize = 50000
 
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
@@ -35,7 +35,7 @@ type Importer struct {
 	desiredBatchSize uint32
 	maxBatchSize     uint32
 	batchMtx         sync.RWMutex
-	chNodeData       chan NodeData
+	chNodeData       chan *Node
 	chNodeDataWg     sync.WaitGroup
 	chBatch          chan db.Batch
 	chBatchWg        sync.WaitGroup
@@ -72,7 +72,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		batchMtx:         sync.RWMutex{},
 		desiredBatchSize: defaultDesiredBatchSize,
 		maxBatchSize:     defaultMaxBatchSize,
-		chNodeData:       make(chan NodeData, defaultDesiredBatchSize),
+		chNodeData:       make(chan *Node, 2*defaultDesiredBatchSize),
 		chNodeDataWg:     sync.WaitGroup{},
 		chBatch:          make(chan db.Batch, 1),
 		chBatchWg:        sync.WaitGroup{},
@@ -102,10 +102,23 @@ func (i *Importer) WithMaxBatchSize(batchSize uint32) *Importer {
 
 func setBatchData(i *Importer) {
 	for i.batch != nil {
-		if nodeData, open := <-i.chNodeData; open {
+		if node, open := <-i.chNodeData; open {
+			node._hash()
+			err := node.validate()
+			if err != nil {
+				i.chError <- err
+				break
+			}
+
+			var buf bytes.Buffer
+			err = node.writeBytes(&buf)
+			if err != nil {
+				i.chError <- err
+				break
+			}
 			i.batchMtx.RLock()
 			if i.batch != nil {
-				err := i.batch.Set(i.tree.ndb.nodeKey(nodeData.node.hash), nodeData.data)
+				err := i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes())
 				if err != nil {
 					i.batchMtx.RUnlock()
 					i.chError <- err
@@ -208,24 +221,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		node.size += node.rightNode.size
 	}
 
-	node._hash()
-	err := node.validate()
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	err = node.writeBytes(&buf)
-	if err != nil {
-		return err
-	}
-
-	nodeData := NodeData{
-		node: node,
-		data: buf.Bytes(),
-	}
-
-	i.chNodeData <- nodeData
+	i.chNodeData <- node
 
 	// Check errors
 	select {
