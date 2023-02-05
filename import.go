@@ -2,17 +2,19 @@ package iavl
 
 import (
 	"bytes"
-
+	"errors"
 	"fmt"
-	"time"
-
-	"github.com/pkg/errors"
+	"sync"
+	"sync/atomic"
 
 	db "github.com/tendermint/tm-db"
 )
 
-// maxBatchSize is the maximum size of the import batch before flushing it to the database
-const maxBatchSize = 10000
+// desiredBatchSize is the desired batch write size of the import batch before flushing it to the database.
+// The actual batch write size could exceed this value based on how fast the batch write goes through.
+// If there's an ongoing pending batch write, we will keep batching more until the ongoing batch write completes.
+const defaultDesiredBatchSize = 10000
+const defaultMaxBatchSize = 100000
 
 // ErrNoImport is returned when calling methods on a closed importer
 var ErrNoImport = errors.New("no import in progress")
@@ -25,14 +27,27 @@ var ErrNoImport = errors.New("no import in progress")
 // Importer is not concurrency-safe, it is the caller's responsibility to ensure the tree is not
 // modified while performing an import.
 type Importer struct {
-	tree      *MutableTree
-	version   int64
-	batch     db.Batch
-	batchSize uint32
-	stack     []*Node
+	tree             *MutableTree
+	version          int64
+	batch            db.Batch
+	batchSize        uint32
+	stack            []*Node
+	desiredBatchSize uint32
+	maxBatchSize     uint32
+	batchMtx         sync.RWMutex
+	chBatch          chan db.Batch
+	chBatchWg        sync.WaitGroup
+	chError          chan error
+	allChannelClosed atomic.Bool
+}
+
+type NodeData struct {
+	node *Node
+	data []byte
 }
 
 // newImporter creates a new Importer for an empty MutableTree.
+// Underneath it spawns three goroutines to process the data import flow.
 //
 // version should correspond to the version that was initially exported. It must be greater than
 // or equal to the highest ExportNode version number given.
@@ -41,25 +56,68 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		return nil, errors.New("imported version cannot be negative")
 	}
 	if tree.ndb.latestVersion > 0 {
-		return nil, errors.Errorf("found database at version %d, must be 0", tree.ndb.latestVersion)
+		return nil, fmt.Errorf("found database at version %d, must be 0", tree.ndb.latestVersion)
 	}
 	if !tree.IsEmpty() {
 		return nil, errors.New("tree must be empty")
 	}
 
-	return &Importer{
-		tree:    tree,
-		version: version,
-		batch:   tree.ndb.db.NewBatch(),
-		stack:   make([]*Node, 0, 8),
-	}, nil
+	importer := &Importer{
+		tree:             tree,
+		version:          version,
+		batch:            tree.ndb.db.NewBatch(),
+		stack:            make([]*Node, 0, 8),
+		batchMtx:         sync.RWMutex{},
+		desiredBatchSize: defaultDesiredBatchSize,
+		maxBatchSize:     defaultMaxBatchSize,
+		chBatch:          make(chan db.Batch, 1),
+		chBatchWg:        sync.WaitGroup{},
+		chError:          make(chan error, 1),
+		allChannelClosed: atomic.Bool{},
+	}
+
+	importer.chBatchWg.Add(1)
+	go batchWrite(importer)
+
+	return importer, nil
+
+}
+
+func (i *Importer) WithDesiredBatchSize(batchSize uint32) *Importer {
+	i.desiredBatchSize = batchSize
+	return i
+}
+
+func (i *Importer) WithMaxBatchSize(batchSize uint32) *Importer {
+	i.desiredBatchSize = batchSize
+	return i
+}
+
+// batchWrite get a new batch from the channel and execute the batch write to the underline DB.
+func batchWrite(i *Importer) {
+	for i.batch != nil {
+		if nextBatch, open := <-i.chBatch; open {
+			err := nextBatch.Write()
+			if err != nil {
+				i.chError <- err
+				break
+			}
+			i.batchMtx.Lock()
+			nextBatch.Close()
+			i.batchMtx.Unlock()
+		} else {
+			break
+		}
+	}
+	i.chBatchWg.Done()
 }
 
 // Close frees all resources. It is safe to call multiple times. Uncommitted nodes may already have
-// been flushed to the database, but will not be visible.
+// been flushed to the database, but will not be visible. Errors are ignored in the close functions.
 func (i *Importer) Close() {
+	_ = i.waitAndCloseChannels()
 	if i.batch != nil {
-		i.batch.Close()
+		_ = i.batch.Close()
 	}
 	i.batch = nil
 	i.tree = nil
@@ -68,16 +126,7 @@ func (i *Importer) Close() {
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
 // but the imported version is not visible until Commit() is called.
-var totalBuildTree int64 = 0
-var totalHashAndValidate int64 = 0
-var totalSerializae int64 = 0
-var totalWrite int64 = 0
-var totalBatchWrite int64 = 0
-var totalItemCount = 0
-
 func (i *Importer) Add(exportNode *ExportNode) error {
-	startTime := time.Now().UnixMicro()
-
 	if i.tree == nil {
 		return ErrNoImport
 	}
@@ -85,7 +134,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		return errors.New("node cannot be nil")
 	}
 	if exportNode.Version > i.version {
-		return errors.Errorf("node version %v can't be greater than import version %v",
+		return fmt.Errorf("node version %v can't be greater than import version %v",
 			exportNode.Version, i.version)
 	}
 
@@ -125,46 +174,40 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		node.size += node.rightNode.size
 	}
 
-	nodeTreeEndTime := time.Now().UnixMicro()
-	totalBuildTree += nodeTreeEndTime - startTime
-
 	node._hash()
 	err := node.validate()
 	if err != nil {
 		return err
 	}
 
-	validateEndTime := time.Now().UnixMicro()
-	totalHashAndValidate += validateEndTime - nodeTreeEndTime
-
 	var buf bytes.Buffer
 	err = node.writeBytes(&buf)
 	if err != nil {
 		return err
 	}
-	serializeEndTime := time.Now().UnixMicro()
-	totalSerializae += serializeEndTime - validateEndTime
 
-	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes()); err != nil {
+	i.batchMtx.RLock()
+	err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes())
+	if err != nil {
+		i.batchMtx.RUnlock()
 		return err
 	}
-
-	setEndTime := time.Now().UnixMicro()
-	totalWrite += setEndTime - serializeEndTime
+	i.batchMtx.RUnlock()
 
 	i.batchSize++
-	if i.batchSize >= maxBatchSize {
-		err = i.batch.Write()
-		if err != nil {
-			return err
-		}
-		i.batch.Close()
+	// Only commit a new batch if size meet desiredBatchSize and there's no pending batch write
+	if (i.batchSize >= i.desiredBatchSize && len(i.chBatch) < 1) || i.batchSize >= i.maxBatchSize {
+		i.chBatch <- i.batch
 		i.batch = i.tree.ndb.db.NewBatch()
 		i.batchSize = 0
 	}
 
-	batchWriteEndTime := time.Now().UnixMicro()
-	totalBatchWrite += batchWriteEndTime - setEndTime
+	// Check errors
+	select {
+	case err := <-i.chError:
+		return err
+	default:
+	}
 
 	// Update the stack now that we know there were no errors
 	switch {
@@ -173,14 +216,9 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	case node.leftHash != nil || node.rightHash != nil:
 		i.stack = i.stack[:stackSize-1]
 	}
-	i.stack = append(i.stack, node)
+	// Only hash\height\size of the node will be used after it be pushed into the stack.
+	i.stack = append(i.stack, &Node{hash: node.hash, height: node.height, size: node.size})
 
-	appendEndTime := time.Now().UnixMicro()
-	totalBuildTree += appendEndTime - batchWriteEndTime
-	totalItemCount++
-	if totalItemCount%100000 == 0 {
-		fmt.Printf("[Iavl-Debug] Added %d items, build tree latency: %d, validate latency: %d, serialize latency: %d, set latency %d, batch write latency %d\n", totalItemCount, totalBuildTree, totalHashAndValidate, totalSerializae, totalWrite, totalBatchWrite)
-	}
 	return nil
 }
 
@@ -192,21 +230,26 @@ func (i *Importer) Commit() error {
 		return ErrNoImport
 	}
 
+	err := i.waitAndCloseChannels()
+	if err != nil {
+		return err
+	}
+
 	switch len(i.stack) {
 	case 0:
 		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), []byte{}); err != nil {
-			panic(err)
+			return err
 		}
 	case 1:
 		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), i.stack[0].hash); err != nil {
-			panic(err)
+			return err
 		}
 	default:
-		return errors.Errorf("invalid node structure, found stack size %v when committing",
+		return fmt.Errorf("invalid node structure, found stack size %v when committing",
 			len(i.stack))
 	}
 
-	err := i.batch.WriteSync()
+	err = i.batch.WriteSync()
 	if err != nil {
 		return err
 	}
@@ -218,5 +261,24 @@ func (i *Importer) Commit() error {
 	}
 
 	i.Close()
+	return nil
+}
+
+// waitAndCloseChannels will try to close all the channels for importer and wait for remaining work to be done.
+// This function is guarded by atomic boolean, so it will only close the channels once. Closing channels usually
+// should happen in the Commit or Close action. If any error happens when draining the remaining data in the channel,
+// The error will be popped out and returned.
+func (i *Importer) waitAndCloseChannels() error {
+	// Make sure all pending works are drained and close the channels in order
+	if i.allChannelClosed.CompareAndSwap(false, true) {
+		close(i.chBatch)
+		i.chBatchWg.Wait()
+		// Check errors
+		select {
+		case err := <-i.chError:
+			return err
+		default:
+		}
+	}
 	return nil
 }
