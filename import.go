@@ -3,6 +3,9 @@ package iavl
 import (
 	"bytes"
 
+	"fmt"
+	"time"
+
 	"github.com/pkg/errors"
 
 	db "github.com/tendermint/tm-db"
@@ -65,7 +68,16 @@ func (i *Importer) Close() {
 // Add adds an ExportNode to the import. ExportNodes must be added in the order returned by
 // Exporter, i.e. depth-first post-order (LRN). Nodes are periodically flushed to the database,
 // but the imported version is not visible until Commit() is called.
+var totalBuildTree int64 = 0
+var totalHashAndValidate int64 = 0
+var totalSerializae int64 = 0
+var totalWrite int64 = 0
+var totalBatchWrite int64 = 0
+var totalItemCount = 0
+
 func (i *Importer) Add(exportNode *ExportNode) error {
+	startTime := time.Now().UnixMicro()
+
 	if i.tree == nil {
 		return ErrNoImport
 	}
@@ -113,21 +125,32 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		node.size += node.rightNode.size
 	}
 
+	nodeTreeEndTime := time.Now().UnixMicro()
+	totalBuildTree += nodeTreeEndTime - startTime
+
 	node._hash()
 	err := node.validate()
 	if err != nil {
 		return err
 	}
 
+	validateEndTime := time.Now().UnixMicro()
+	totalHashAndValidate += validateEndTime - nodeTreeEndTime
+
 	var buf bytes.Buffer
 	err = node.writeBytes(&buf)
 	if err != nil {
 		return err
 	}
+	serializeEndTime := time.Now().UnixMicro()
+	totalSerializae += serializeEndTime - validateEndTime
 
 	if err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes()); err != nil {
 		return err
 	}
+
+	setEndTime := time.Now().UnixMicro()
+	totalWrite += setEndTime - serializeEndTime
 
 	i.batchSize++
 	if i.batchSize >= maxBatchSize {
@@ -140,6 +163,9 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		i.batchSize = 0
 	}
 
+	batchWriteEndTime := time.Now().UnixMicro()
+	totalBatchWrite += batchWriteEndTime - setEndTime
+
 	// Update the stack now that we know there were no errors
 	switch {
 	case node.leftHash != nil && node.rightHash != nil:
@@ -149,6 +175,12 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	}
 	i.stack = append(i.stack, node)
 
+	appendEndTime := time.Now().UnixMicro()
+	totalBuildTree += appendEndTime - batchWriteEndTime
+	totalItemCount++
+	if totalItemCount%10000 == 0 {
+		fmt.Printf("Added %d items, build tree latency: %d, validate latency: %d, serialize latency: %d, set latency %d, batch write latency %d\n", totalItemCount, totalHashAndValidate, totalSerializae, totalWrite, totalBatchWrite)
+	}
 	return nil
 }
 
