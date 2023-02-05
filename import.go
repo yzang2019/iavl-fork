@@ -107,6 +107,7 @@ func setBatchData(i *Importer) {
 			if i.batch != nil {
 				err := i.batch.Set(i.tree.ndb.nodeKey(nodeData.node.hash), nodeData.data)
 				if err != nil {
+					i.batchMtx.RUnlock()
 					i.chError <- err
 					break
 				}
@@ -121,6 +122,7 @@ func setBatchData(i *Importer) {
 			}
 		}
 	}
+	i.chNodeDataWg.Done()
 }
 
 // batchWrite get a new batch from the channel and execute the batch write to the underline DB.
