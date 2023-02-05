@@ -178,8 +178,8 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	appendEndTime := time.Now().UnixMicro()
 	totalBuildTree += appendEndTime - batchWriteEndTime
 	totalItemCount++
-	if totalItemCount%10000 == 0 {
-		fmt.Printf("Added %d items, build tree latency: %d, validate latency: %d, serialize latency: %d, set latency %d, batch write latency %d\n", totalItemCount, totalHashAndValidate, totalSerializae, totalWrite, totalBatchWrite)
+	if totalItemCount%100000 == 0 {
+		fmt.Printf("[Iavl-Debug] Added %d items, build tree latency: %d, validate latency: %d, serialize latency: %d, set latency %d, batch write latency %d\n", totalItemCount, totalBuildTree, totalHashAndValidate, totalSerializae, totalWrite, totalBatchWrite)
 	}
 	return nil
 }
