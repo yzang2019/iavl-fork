@@ -253,11 +253,12 @@ func (i *Importer) Commit() error {
 		return ErrNoImport
 	}
 
+	fmt.Println("Starting to commit and wait for channel close....")
 	err := i.waitAndCloseChannels()
 	if err != nil {
 		return err
 	}
-
+	fmt.Println("All channels closed")
 	switch len(i.stack) {
 	case 0:
 		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), []byte{}); err != nil {
@@ -282,7 +283,7 @@ func (i *Importer) Commit() error {
 	if err != nil {
 		return err
 	}
-
+	fmt.Println("Closing the importer after commit ")
 	i.Close()
 	return nil
 }
