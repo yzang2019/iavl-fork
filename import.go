@@ -35,6 +35,8 @@ type Importer struct {
 	desiredBatchSize uint32
 	maxBatchSize     uint32
 	batchMtx         sync.RWMutex
+	chNodeData       chan NodeData
+	chNodeDataWg     sync.WaitGroup
 	chBatch          chan db.Batch
 	chBatchWg        sync.WaitGroup
 	chError          chan error
@@ -70,11 +72,16 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		batchMtx:         sync.RWMutex{},
 		desiredBatchSize: defaultDesiredBatchSize,
 		maxBatchSize:     defaultMaxBatchSize,
+		chNodeData:       make(chan NodeData, defaultDesiredBatchSize),
+		chNodeDataWg:     sync.WaitGroup{},
 		chBatch:          make(chan db.Batch, 1),
 		chBatchWg:        sync.WaitGroup{},
 		chError:          make(chan error, 1),
 		allChannelClosed: atomic.Bool{},
 	}
+
+	importer.chBatchWg.Add(1)
+	go setBatchData(importer)
 
 	importer.chBatchWg.Add(1)
 	go batchWrite(importer)
@@ -91,6 +98,29 @@ func (i *Importer) WithDesiredBatchSize(batchSize uint32) *Importer {
 func (i *Importer) WithMaxBatchSize(batchSize uint32) *Importer {
 	i.desiredBatchSize = batchSize
 	return i
+}
+
+func setBatchData(i *Importer) {
+	for i.batch != nil {
+		if nodeData, open := <-i.chNodeData; open {
+			i.batchMtx.RLock()
+			if i.batch != nil {
+				err := i.batch.Set(i.tree.ndb.nodeKey(nodeData.node.hash), nodeData.data)
+				if err != nil {
+					i.chError <- err
+					break
+				}
+			}
+			i.batchMtx.RUnlock()
+			i.batchSize++
+			// Only commit a new batch if size meet desiredBatchSize and there's no pending batch write
+			if (i.batchSize >= i.desiredBatchSize && len(i.chBatch) < 1) || i.batchSize >= i.maxBatchSize {
+				i.chBatch <- i.batch
+				i.batch = i.tree.ndb.db.NewBatch()
+				i.batchSize = 0
+			}
+		}
+	}
 }
 
 // batchWrite get a new batch from the channel and execute the batch write to the underline DB.
@@ -186,21 +216,12 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		return err
 	}
 
-	i.batchMtx.RLock()
-	err = i.batch.Set(i.tree.ndb.nodeKey(node.hash), buf.Bytes())
-	if err != nil {
-		i.batchMtx.RUnlock()
-		return err
+	nodeData := NodeData{
+		node: node,
+		data: buf.Bytes(),
 	}
-	i.batchMtx.RUnlock()
 
-	i.batchSize++
-	// Only commit a new batch if size meet desiredBatchSize and there's no pending batch write
-	if (i.batchSize >= i.desiredBatchSize && len(i.chBatch) < 1) || i.batchSize >= i.maxBatchSize {
-		i.chBatch <- i.batch
-		i.batch = i.tree.ndb.db.NewBatch()
-		i.batchSize = 0
-	}
+	i.chNodeData <- nodeData
 
 	// Check errors
 	select {
@@ -271,6 +292,8 @@ func (i *Importer) Commit() error {
 func (i *Importer) waitAndCloseChannels() error {
 	// Make sure all pending works are drained and close the channels in order
 	if i.allChannelClosed.CompareAndSwap(false, true) {
+		close(i.chNodeData)
+		i.chNodeDataWg.Wait()
 		close(i.chBatch)
 		i.chBatchWg.Wait()
 		// Check errors
