@@ -120,6 +120,8 @@ func setBatchData(i *Importer) {
 				i.batch = i.tree.ndb.db.NewBatch()
 				i.batchSize = 0
 			}
+		} else {
+			break
 		}
 	}
 	i.chNodeDataWg.Done()
