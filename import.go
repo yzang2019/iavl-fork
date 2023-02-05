@@ -13,7 +13,7 @@ import (
 // desiredBatchSize is the desired batch write size of the import batch before flushing it to the database.
 // The actual batch write size could exceed this value based on how fast the batch write goes through.
 // If there's an ongoing pending batch write, we will keep batching more until the ongoing batch write completes.
-const defaultDesiredBatchSize = 10000
+const defaultDesiredBatchSize = 50000
 const defaultMaxBatchSize = 100000
 
 // ErrNoImport is returned when calling methods on a closed importer
